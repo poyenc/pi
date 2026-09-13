@@ -2,6 +2,7 @@
  * CLI argument parsing and help display
  */
 
+import { accessSync, constants, statSync } from "node:fs";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
@@ -109,6 +110,20 @@ export function parseArgs(args: string[]): Args {
 			result.apiKey = args[++i];
 		} else if (arg === "--system-prompt" && i + 1 < args.length) {
 			result.systemPrompt = args[++i];
+		} else if (arg === "--system-prompt-file" && i + 1 < args.length) {
+			const path = args[++i];
+			try {
+				if (!statSync(path).isFile()) {
+					throw new Error("not a regular file");
+				}
+				accessSync(path, constants.R_OK);
+				result.systemPrompt = path;
+			} catch (err) {
+				result.diagnostics.push({
+					type: "error",
+					message: `--system-prompt-file: cannot read ${path}: ${(err as Error).message}`,
+				});
+			}
 		} else if (arg === "--append-system-prompt" && i + 1 < args.length) {
 			result.appendSystemPrompt = result.appendSystemPrompt ?? [];
 			result.appendSystemPrompt.push(args[++i]);
@@ -279,6 +294,7 @@ ${chalk.bold("Options:")}
   --model <pattern>              Model pattern or ID (supports "provider/id" and optional ":<thinking>")
   --api-key <key>                API key (defaults to env vars)
   --system-prompt <text>         System prompt (default: coding assistant prompt)
+  --system-prompt-file <path>    Read the system prompt from a file
   --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)
   --mode <mode>                  Output mode: text (default), json, or rpc
   --print, -p                    Non-interactive mode: process prompt and exit
