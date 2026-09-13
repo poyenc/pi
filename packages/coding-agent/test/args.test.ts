@@ -1,4 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { normalizeSessionName, parseArgs } from "../src/cli/args.ts";
 
 describe("parseArgs", () => {
@@ -155,6 +158,58 @@ describe("parseArgs", () => {
 			const result = parseArgs(["--models", "gpt-4o,claude-sonnet,gemini-pro"]);
 			expect(result.models).toEqual(["gpt-4o", "claude-sonnet", "gemini-pro"]);
 		});
+	});
+
+	describe("--system-prompt-file flag", () => {
+		let dir: string;
+
+		beforeEach(() => {
+			dir = mkdtempSync(join(tmpdir(), "pi-system-prompt-file-"));
+		});
+
+		afterEach(() => {
+			rmSync(dir, { recursive: true, force: true });
+		});
+
+		test("stores the path of a readable file", () => {
+			const file = join(dir, "prompt.md");
+			writeFileSync(file, "You are a helpful assistant");
+			const result = parseArgs(["--system-prompt-file", file]);
+			expect(result.systemPrompt).toBe(file);
+			expect(result.diagnostics).toEqual([]);
+		});
+
+		test("errors when the file does not exist", () => {
+			const result = parseArgs(["--system-prompt-file", join(dir, "missing.md")]);
+			expect(result.systemPrompt).toBeUndefined();
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({ type: "error", message: expect.stringContaining("--system-prompt-file") }),
+			);
+		});
+
+		test("errors when the path is a directory", () => {
+			const result = parseArgs(["--system-prompt-file", dir]);
+			expect(result.systemPrompt).toBeUndefined();
+			expect(result.diagnostics).toContainEqual(
+				expect.objectContaining({ type: "error", message: expect.stringContaining("not a regular file") }),
+			);
+		});
+
+		// Skipped on Windows (chmod 0o000 only toggles read-only, not read permission) and as
+		// root (bypasses the read-permission check).
+		test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+			"errors when the file is unreadable",
+			() => {
+				const file = join(dir, "unreadable.md");
+				writeFileSync(file, "secret");
+				chmodSync(file, 0o000);
+				const result = parseArgs(["--system-prompt-file", file]);
+				expect(result.systemPrompt).toBeUndefined();
+				expect(result.diagnostics).toContainEqual(
+					expect.objectContaining({ type: "error", message: expect.stringContaining("--system-prompt-file") }),
+				);
+			},
+		);
 	});
 
 	describe("--name flag", () => {
